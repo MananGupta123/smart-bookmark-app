@@ -21,7 +21,26 @@ function normalizeUrl(input: string) {
   const withProtocol = /^https?:\/\//i.test(input) ? input : `https://${input}`;
 
   try {
-    return new URL(withProtocol).toString();
+    const parsed = new URL(withProtocol);
+    const hostname = parsed.hostname.toLowerCase();
+    const isIpv4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(
+      hostname,
+    );
+    const isLocalhost = hostname === "localhost";
+    const hasValidDomainPattern =
+      /^[a-z0-9.-]+$/.test(hostname) &&
+      !hostname.startsWith(".") &&
+      !hostname.endsWith(".") &&
+      !hostname.includes("..");
+
+    const isHttpProtocol = parsed.protocol === "http:" || parsed.protocol === "https:";
+    const isValidHost = isLocalhost || isIpv4 || (hasValidDomainPattern && hostname.includes("."));
+
+    if (!isHttpProtocol || !isValidHost) {
+      return null;
+    }
+
+    return parsed.toString();
   } catch {
     return null;
   }
@@ -105,25 +124,25 @@ export default function Home() {
       return;
     }
 
-    const channel = supabase
-      .channel(`bookmarks-user-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "bookmarks",
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          void loadBookmarks(userId);
-        },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          void loadBookmarks(userId);
-        }
-      });
+      const channel = supabase
+        .channel(`bookmarks-user-${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "bookmarks",
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            void loadBookmarks(userId);
+          },
+        )
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void loadBookmarks(userId);
+          }
+        });
 
     return () => {
       void supabase.removeChannel(channel);
