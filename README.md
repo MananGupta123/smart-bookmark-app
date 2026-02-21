@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Bookmark App
 
-## Getting Started
+Simple bookmark manager built with:
+- Next.js (App Router)
+- Supabase (Auth + Postgres + Realtime)
+- Tailwind CSS
 
-First, run the development server:
+## Features Implemented
 
+1. Google OAuth login only (no email/password flow)
+2. Logged-in users can add bookmarks (title + URL)
+3. Bookmarks are private per user (RLS policies)
+4. Bookmark list updates in real time across tabs
+5. Users can delete only their own bookmarks
+6. Ready for Vercel deployment
+
+## Local Setup
+
+1. Install dependencies:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Create environment file:
+```bash
+cp .env.example .env.local
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Add values in `.env.local`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. In Supabase SQL editor, run `supabase/schema.sql`.
 
-## Learn More
+5. Configure Google provider in Supabase:
+- Go to `Authentication -> Providers -> Google`
+- Add Google Client ID and Secret from Google Cloud Console
+- Enable the provider
 
-To learn more about Next.js, take a look at the following resources:
+Google Cloud Console checklist:
+- Create OAuth consent screen
+- Create OAuth 2.0 Client ID (Web application)
+- Authorized redirect URI must include:
+  - `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+6. Add Supabase auth URLs:
+- Go to `Authentication -> URL Configuration`
+- Site URL: `http://localhost:3000`
+- Redirect URLs:
+  - `http://localhost:3000`
+  - your Vercel domain (after deployment), for example `https://your-app.vercel.app`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+7. Run locally:
+```bash
+npm run dev
+```
 
-## Deploy on Vercel
+## Database Design
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`bookmarks` table:
+- `id` (uuid, PK)
+- `user_id` (uuid, references `auth.users.id`)
+- `title` (text)
+- `url` (text)
+- `created_at` (timestamptz)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+RLS policies ensure users can only:
+- read their own bookmarks
+- insert their own bookmarks
+- delete their own bookmarks
+
+Realtime is enabled by adding `public.bookmarks` to `supabase_realtime` publication.
+`REPLICA IDENTITY FULL` is set so delete events also carry full row data for filtering.
+
+## Deploy to Vercel
+
+1. Push this project to a public GitHub repo.
+2. Import the repo in Vercel.
+3. Add environment variables in Vercel project settings:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Deploy.
+5. Copy deployed URL and add it to Supabase `URL Configuration`:
+- Site URL = Vercel URL
+- Redirect URL includes Vercel URL
+
+## Assignment Mapping
+
+- Requirement 1: Google OAuth implemented via `supabase.auth.signInWithOAuth({ provider: "google" })`
+- Requirement 2: Add bookmark form in UI
+- Requirement 3: RLS + `user_id` filter
+- Requirement 4: Supabase Realtime subscription on `bookmarks` changes
+- Requirement 5: Delete button with row-level delete policy
+- Requirement 6: Vercel deployment steps provided above
+
+## Problems Faced and How They Were Solved
+
+1. OAuth redirect mismatch:
+- Problem: login succeeds in Google but returns error in app.
+- Solution: updated Supabase `Site URL` and `Redirect URLs` for both localhost and Vercel URL.
+
+2. Users seeing each other's data:
+- Problem: without strict RLS, data can leak between users.
+- Solution: enabled RLS and added `auth.uid() = user_id` policies for `select`, `insert`, and `delete`.
+
+3. Realtime events not firing:
+- Problem: bookmark list did not refresh live across tabs.
+- Solution: added `bookmarks` table to `supabase_realtime` publication and subscribed to `postgres_changes`.
+
+4. URL input validation:
+- Problem: users can submit invalid URLs or missing protocol.
+- Solution: normalized input by auto-prefixing `https://` and validating with `new URL(...)` before insert.
